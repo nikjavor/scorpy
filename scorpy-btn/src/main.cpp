@@ -5,14 +5,10 @@
 
 #include <esp_now.h>
 #include <WiFi.h>
+#include <types.h>
+
 
 const uint8_t broadcastAddress[] = {0xF4, 0x2D, 0xC9, 0x6C, 0x4C, 0x98}; // MAC address of reciever (scoreboard)
-
-typedef struct struct_message
-{
-  int id; // must be unique for each sender board
-  int value;
-} struct_message;
 
 struct_message myData;
 

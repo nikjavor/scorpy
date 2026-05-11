@@ -5,12 +5,7 @@
 
 #include <WiFi.h>
 #include <esp_now.h>
-
-typedef struct struct_message
-{
-  int id;
-  int value;
-} struct_message;
+#include <types.h>
 
 struct_message myData;
 
