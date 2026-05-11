@@ -70,6 +70,8 @@ void setup()
 void loop()
 {
   // put your main code here, to run repeatedly:
+  homeBtn.tick();
+  guestBtn.tick();
   delay(10);
 }
 
