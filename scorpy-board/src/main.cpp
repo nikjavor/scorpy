@@ -8,50 +8,51 @@
 #include <LiquidCrystal.h>
 #include <OneButton.h>
 
-#include <types.h>
+#include "../../shared/protocol.h"
 
 void displayScore();
 void OnDataRecv(const uint8_t *mac_addr, const uint8_t *incomingData, int len);
-void HandleClick(bool isHome);
-void HandleLongPress(bool isHome);
-void HandleLongPressStop(bool isHome);
+void handleLongPress(int teamId);
+void handleLongPressStop(int teamId);
+void changeScore(int teamId, int amount);
+void resetScores();
 
-struct_message myData;
+const int PIN_HOME = 26;
+const int PIN_AWAY = 27;
+
+struct_message message;
 
 LiquidCrystal lcd(4, 18, 19, 21, 22, 23);
 
-int pinHome = 26;
-int pinGuest = 27;
-
 OneButton homeBtn;
-OneButton guestBtn;
+OneButton awayBtn;
 
 bool isHomeLongPressed = false;
-bool isGuestLongPressed = false;
+bool isAwayLongPressed = false;
 
-int score_home = 0;
-int score_guest = 0;
+int scoreHome = 0;
+int scoreAway = 0;
 
 void setup()
 {
   // put your setup code here, to run once:
   Serial.begin(115200);
 
-  homeBtn.setup(pinHome);
-  guestBtn.setup(pinGuest);
+  homeBtn.setup(PIN_HOME);
+  awayBtn.setup(PIN_AWAY);
 
   homeBtn.attachClick([]()
-                      { HandleClick(true); });
+                      { changeScore(TEAM_HOME, 1); });
   homeBtn.attachLongPressStart([]()
-                               { HandleLongPress(true); });
+                               { handleLongPress(TEAM_HOME); });
   homeBtn.attachLongPressStop([]()
-                              { HandleLongPressStop(true); });
-  guestBtn.attachClick([]()
-                       { HandleClick(false); });
-  guestBtn.attachLongPressStart([]()
-                                { HandleLongPress(false); });
-  guestBtn.attachLongPressStop([]()
-                               { HandleLongPressStop(true); });
+                              { handleLongPressStop(TEAM_HOME); });
+  awayBtn.attachClick([]()
+                      { changeScore(TEAM_AWAY, 1); });
+  awayBtn.attachLongPressStart([]()
+                               { handleLongPress(TEAM_AWAY); });
+  awayBtn.attachLongPressStop([]()
+                              { handleLongPressStop(TEAM_AWAY); });
 
   WiFi.mode(WIFI_STA);
 
@@ -71,88 +72,105 @@ void loop()
 {
   // put your main code here, to run repeatedly:
   homeBtn.tick();
-  guestBtn.tick();
-  delay(10);
+  awayBtn.tick();
 }
 
 void displayScore()
 {
-  Serial.printf("\nHome: %d \t Guest: %d \n", score_home, score_guest);
+  Serial.printf("\nHome: %d \t Away: %d \n", scoreHome, scoreAway);
+
   lcd.clear();
+
   lcd.setCursor(2, 0);
-  lcd.print("HOME   GUEST");
+  lcd.print("HOME   AWAY");
+
   lcd.setCursor(3, 1);
-  lcd.print(score_home);
-  lcd.setCursor(11, 1);
-  lcd.print(score_guest);
+  lcd.print(scoreHome);
+
+  lcd.setCursor(10, 1);
+  lcd.print(scoreAway);
 }
 
 void OnDataRecv(const uint8_t *mac_addr, const uint8_t *incomingData, int len)
 {
-  memcpy(&myData, incomingData, sizeof(myData));
-
-  if (myData.id == 0)
+  if (len != sizeof(message))
   {
-    score_home += myData.value;
-    if (score_home < 0)
-      score_home = 0;
-  }
-  else if (myData.id == 1)
-  {
-    score_guest += myData.value;
-    if (score_guest < 0)
-      score_guest = 0;
+    Serial.println("Received invalid message size");
+    return;
   }
 
-  displayScore();
-}
+  memcpy(&message, incomingData, sizeof(message));
 
-void HandleClick(bool isHome)
-{
-  if (isHome)
+  if (message.id == TEAM_HOME || message.id == TEAM_AWAY)
   {
-    score_home += 1;
+    changeScore(message.id, message.value);
   }
   else
   {
-    score_guest += 1;
+    Serial.println("Received unknown team ID");
   }
-
-  displayScore();
 }
 
-void HandleLongPress(bool isHome)
+void handleLongPress(int teamId)
 {
-  if (isHome)
+  if (teamId == TEAM_HOME)
   {
     isHomeLongPressed = true;
-    if (score_home > 0)
-      score_home -= 1;
   }
-  else
+  else if (teamId == TEAM_AWAY)
   {
-    isGuestLongPressed = true;
-    if (score_guest > 0)
-      score_guest -= 1;
+    isAwayLongPressed = true;
   }
 
-  if (isHomeLongPressed && isGuestLongPressed)
+  if (isHomeLongPressed && isAwayLongPressed)
   {
-    score_home = 0;
-    score_guest = 0;
+    resetScores();
+    return;
   }
 
-  displayScore();
+  changeScore(teamId, -1);
 }
 
-void HandleLongPressStop(bool isHome)
+void handleLongPressStop(int teamId)
 {
-  if (isHome)
+  if (teamId == TEAM_HOME)
   {
     isHomeLongPressed = false;
   }
-  else
+  else if (teamId == TEAM_AWAY)
   {
-    isGuestLongPressed = false;
+    isAwayLongPressed = false;
   }
+}
+
+void changeScore(int teamId, int amount)
+{
+  if (teamId == TEAM_HOME)
+  {
+    scoreHome += amount;
+
+    if (scoreHome < 0)
+    {
+      scoreHome = 0;
+    }
+  }
+  else if (teamId == TEAM_AWAY)
+  {
+    scoreAway += amount;
+
+    if (scoreAway < 0)
+    {
+      scoreAway = 0;
+    }
+  }
+
+  displayScore();
+}
+
+void resetScores()
+{
+  scoreHome = 0;
+  scoreAway = 0;
+
+  displayScore();
 }

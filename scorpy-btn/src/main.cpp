@@ -7,23 +7,20 @@
 #include <WiFi.h>
 #include <OneButton.h>
 
-#include <types.h>
+#include "../../shared/protocol.h"
 
-bool sendData();
-void OnDataSend(const uint8_t *mac_addr, esp_now_send_status_t status);
-void HandleClick(bool isHome);
-void HandleLongPress(bool isHome);
+bool sendScoreUpdate(int teamId, int value);
+void onDataSend(const uint8_t *mac_addr, esp_now_send_status_t status);
 
-const uint8_t broadcastAddress[] = {0xF4, 0x2D, 0xC9, 0x6C, 0x4C, 0x98}; // MAC address of reciever (scoreboard)
+const uint8_t SCOREBOARD_MAC[] = {0xF4, 0x2D, 0xC9, 0x6C, 0x4C, 0x98}; // MAC address of receiver (scoreboard)
 
-struct_message myData;
-
-const int pinHome = 18;
-const int pinAway = 19;
+const int PIN_HOME = 18;
+const int PIN_AWAY = 19;
 
 OneButton homeBtn;
 OneButton awayBtn;
 
+struct_message message;
 esp_now_peer_info_t peerInfo;
 
 void setup()
@@ -31,17 +28,17 @@ void setup()
   // put your setup code here, to run once:
   Serial.begin(115200);
 
-  homeBtn.setup(pinHome);
-  awayBtn.setup(pinAway);
+  homeBtn.setup(PIN_HOME);
+  awayBtn.setup(PIN_AWAY);
 
   homeBtn.attachClick([]()
-                      { HandleClick(true); });
+                      { sendScoreUpdate(TEAM_HOME, 1); });
   homeBtn.attachLongPressStart([]()
-                               { HandleLongPress(true); });
+                               { sendScoreUpdate(TEAM_HOME, -1); });
   awayBtn.attachClick([]()
-                      { HandleClick(false); });
+                      { sendScoreUpdate(TEAM_AWAY, 1); });
   awayBtn.attachLongPressStart([]()
-                               { HandleLongPress(false); });
+                               { sendScoreUpdate(TEAM_AWAY, -1); });
 
   WiFi.mode(WIFI_STA);
 
@@ -51,9 +48,9 @@ void setup()
     ESP.restart();
   }
 
-  esp_now_register_send_cb(esp_now_send_cb_t(OnDataSend));
+  esp_now_register_send_cb(esp_now_send_cb_t(onDataSend));
 
-  memcpy(peerInfo.peer_addr, broadcastAddress, 6);
+  memcpy(peerInfo.peer_addr, SCOREBOARD_MAC, sizeof(SCOREBOARD_MAC));
   peerInfo.channel = 0;
   peerInfo.encrypt = false;
 
@@ -71,37 +68,27 @@ void loop()
   awayBtn.tick();
 }
 
-bool sendData()
+bool sendScoreUpdate(int teamId, int value)
 {
-  esp_err_t result = esp_now_send(broadcastAddress, (uint8_t *)&myData, sizeof(myData));
+  message.id = teamId;
+  message.value = value;
+
+  esp_err_t result = esp_now_send(SCOREBOARD_MAC, (uint8_t *)&message, sizeof(message));
+
   if (result == ESP_OK)
   {
     Serial.println("\nSent with success");
+    return true;
   }
   else
   {
     Serial.println("\nError sending the data");
+    return false;
   }
 }
 
-void OnDataSend(const uint8_t *mac_addr, esp_now_send_status_t status)
+void onDataSend(const uint8_t *mac_addr, esp_now_send_status_t status)
 {
   Serial.print("\r\nLast Packet Send Status:\t");
   Serial.println(status == ESP_NOW_SEND_SUCCESS ? "Delivery Success" : "Delivery Fail");
-}
-
-void HandleClick(bool isHome)
-{
-  myData.id = isHome ? 0 : 1;
-  myData.value = 1;
-
-  sendData();
-}
-
-void HandleLongPress(bool isHome)
-{
-  myData.id = isHome ? 0 : 1;
-  myData.value = -1;
-
-  sendData();
 }
