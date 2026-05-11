@@ -24,10 +24,14 @@ void OnDataRecv(const uint8_t *mac_addr, const uint8_t *incomingData, int len)
   if (myData.id == 0)
   {
     score_home += myData.value;
+    if (score_home < 0)
+      score_home = 0;
   }
   else if (myData.id == 1)
   {
     score_guest += myData.value;
+    if (score_guest < 0)
+      score_guest = 0;
   }
   Serial.printf("\nHome: %d \t Guest: %d \n", score_home, score_guest);
 }
