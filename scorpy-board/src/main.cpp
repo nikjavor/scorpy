@@ -5,22 +5,23 @@
 
 #include <WiFi.h>
 #include <esp_now.h>
+#include <LiquidCrystal.h>
+
 #include <types.h>
 
 struct_message myData;
 
+LiquidCrystal lcd(4, 18, 19, 21, 22, 23);
+
 int score_home = 0;
 int score_guest = 0;
 
+void displayScore();
+
 void OnDataRecv(const uint8_t *mac_addr, const uint8_t *incomingData, int len)
 {
-  // char macStr[18];
-  // Serial.print("Packet received from: ");
-  // snprintf(macStr, sizeof(macStr), "%02x:%02x:%02x:%02x:%02x:%02x",
-  //          mac_addr[0], mac_addr[1], mac_addr[2], mac_addr[3], mac_addr[4], mac_addr[5]);
-  // Serial.println(macStr);
   memcpy(&myData, incomingData, sizeof(myData));
-  // Serial.printf("Board ID %u: %u bytes\n", myData.id, len);
+
   if (myData.id == 0)
   {
     score_home += myData.value;
@@ -33,7 +34,8 @@ void OnDataRecv(const uint8_t *mac_addr, const uint8_t *incomingData, int len)
     if (score_guest < 0)
       score_guest = 0;
   }
-  Serial.printf("\nHome: %d \t Guest: %d \n", score_home, score_guest);
+  
+  displayScore();
 }
 
 void setup()
@@ -49,13 +51,26 @@ void setup()
     ESP.restart();
   }
 
-  Serial.printf("\nHome: %d \t Guest: %d \n", score_home, score_guest);
-
   esp_now_register_recv_cb(esp_now_recv_cb_t(OnDataRecv));
+
+  lcd.begin(16, 2);
+  displayScore();
 }
 
 void loop()
 {
   // put your main code here, to run repeatedly:
   delay(10);
+}
+
+void displayScore()
+{
+  Serial.printf("\nHome: %d \t Guest: %d \n", score_home, score_guest);
+  lcd.clear();
+  lcd.setCursor(2, 0);
+  lcd.print("HOME   GUEST");
+  lcd.setCursor(3, 1);
+  lcd.print(score_home);
+  lcd.setCursor(11, 1);
+  lcd.print(score_guest);
 }
