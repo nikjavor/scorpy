@@ -5,8 +5,14 @@
 
 #include <esp_now.h>
 #include <WiFi.h>
+#include <OneButton.h>
+
 #include <types.h>
 
+bool sendData();
+void OnDataSend(const uint8_t *mac_addr, esp_now_send_status_t status);
+void HandleClick(bool isHome);
+void HandleLongPress(bool isHome);
 
 const uint8_t broadcastAddress[] = {0xF4, 0x2D, 0xC9, 0x6C, 0x4C, 0x98}; // MAC address of reciever (scoreboard)
 
@@ -15,24 +21,27 @@ struct_message myData;
 const int pinHome = 18;
 const int pinAway = 19;
 
-bool homePressed = false;
-bool awayPressed = false;
+OneButton homeBtn;
+OneButton awayBtn;
 
 esp_now_peer_info_t peerInfo;
-
-void OnDataSend(const uint8_t *mac_addr, esp_now_send_status_t status)
-{
-  Serial.print("\r\nLast Packet Send Status:\t");
-  Serial.println(status == ESP_NOW_SEND_SUCCESS ? "Delivery Success" : "Delivery Fail");
-}
 
 void setup()
 {
   // put your setup code here, to run once:
   Serial.begin(115200);
 
-  pinMode(pinHome, INPUT_PULLUP);
-  pinMode(pinAway, INPUT_PULLUP);
+  homeBtn.setup(pinHome);
+  awayBtn.setup(pinAway);
+
+  homeBtn.attachClick([]()
+                      { HandleClick(true); });
+  homeBtn.attachLongPressStart([]()
+                               { HandleLongPress(true); });
+  awayBtn.attachClick([]()
+                      { HandleClick(false); });
+  awayBtn.attachLongPressStart([]()
+                               { HandleLongPress(false); });
 
   WiFi.mode(WIFI_STA);
 
@@ -58,53 +67,41 @@ void setup()
 void loop()
 {
   // put your main code here, to run repeatedly:
-  if (digitalRead(pinHome) == LOW)
-  {
-    if (!homePressed)
-    {
-      // send
-      myData.id = 0;
-      myData.value = 1;
-      esp_err_t result = esp_now_send(broadcastAddress, (uint8_t *)&myData, sizeof(myData));
-      if (result == ESP_OK)
-      {
-        Serial.println("\nSent with success");
-      }
-      else
-      {
-        Serial.println("\nError sending the data");
-      }
-    }
-    homePressed = true;
-  }
-  else
-  {
-    homePressed = false;
-  }
-  
-  
-  if (digitalRead(pinAway) == LOW)
-  {
-    if (!awayPressed)
-    {
-      // send
-      myData.id = 1;
-      myData.value = 1;
-      esp_err_t result = esp_now_send(broadcastAddress, (uint8_t *)&myData, sizeof(myData));
-      if (result == ESP_OK)
-      {
-        Serial.println("\nSent with success");
-      }
-      else
-      {
-        Serial.println("\nError sending the data");
-      }
-    }
-    awayPressed = true;
-  }
-  else
-  {
-    awayPressed = false;
-  }
+  homeBtn.tick();
+  awayBtn.tick();
+}
 
+bool sendData()
+{
+  esp_err_t result = esp_now_send(broadcastAddress, (uint8_t *)&myData, sizeof(myData));
+  if (result == ESP_OK)
+  {
+    Serial.println("\nSent with success");
+  }
+  else
+  {
+    Serial.println("\nError sending the data");
+  }
+}
+
+void OnDataSend(const uint8_t *mac_addr, esp_now_send_status_t status)
+{
+  Serial.print("\r\nLast Packet Send Status:\t");
+  Serial.println(status == ESP_NOW_SEND_SUCCESS ? "Delivery Success" : "Delivery Fail");
+}
+
+void HandleClick(bool isHome)
+{
+  myData.id = isHome ? 0 : 1;
+  myData.value = 1;
+
+  sendData();
+}
+
+void HandleLongPress(bool isHome)
+{
+  myData.id = isHome ? 0 : 1;
+  myData.value = -1;
+
+  sendData();
 }
