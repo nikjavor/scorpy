@@ -9,18 +9,20 @@
 
 #include "../../shared/protocol.h"
 
-bool sendScoreUpdate(int teamId, int value);
 void onDataSend(const uint8_t *mac_addr, esp_now_send_status_t status);
+void handleClick();
+void handleLongPress();
+bool sendEvent(ClickEventType type);
 
-const uint8_t SCOREBOARD_MAC[] = {0xF4, 0x2D, 0xC9, 0x6C, 0x4C, 0x98}; // MAC address of receiver (scoreboard)
+const uint8_t BROADCAST_MAC[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF}; // Broadcast MAC
 
-const int PIN_HOME = 18;
-const int PIN_AWAY = 19;
+const int BTN_PIN = 10; // D10
 
-OneButton homeBtn;
-OneButton awayBtn;
+const int TEAM_ID = TEAM_HOME;
 
-struct_message message;
+OneButton btn;
+
+ScorpyMessage message;
 esp_now_peer_info_t peerInfo;
 
 void setup()
@@ -28,17 +30,10 @@ void setup()
   // put your setup code here, to run once:
   Serial.begin(115200);
 
-  homeBtn.setup(PIN_HOME);
-  awayBtn.setup(PIN_AWAY);
+  btn.setup(BTN_PIN);
 
-  homeBtn.attachClick([]()
-                      { sendScoreUpdate(TEAM_HOME, 1); });
-  homeBtn.attachLongPressStart([]()
-                               { sendScoreUpdate(TEAM_HOME, -1); });
-  awayBtn.attachClick([]()
-                      { sendScoreUpdate(TEAM_AWAY, 1); });
-  awayBtn.attachLongPressStart([]()
-                               { sendScoreUpdate(TEAM_AWAY, -1); });
+  btn.attachClick(handleClick);
+  btn.attachLongPressStart(handleLongPress);
 
   WiFi.mode(WIFI_STA);
 
@@ -50,7 +45,7 @@ void setup()
 
   esp_now_register_send_cb(esp_now_send_cb_t(onDataSend));
 
-  memcpy(peerInfo.peer_addr, SCOREBOARD_MAC, sizeof(SCOREBOARD_MAC));
+  memcpy(peerInfo.peer_addr, BROADCAST_MAC, sizeof(BROADCAST_MAC));
   peerInfo.channel = 0;
   peerInfo.encrypt = false;
 
@@ -64,16 +59,14 @@ void setup()
 void loop()
 {
   // put your main code here, to run repeatedly:
-  homeBtn.tick();
-  awayBtn.tick();
+  btn.tick();
 }
 
-bool sendScoreUpdate(int teamId, int value)
+bool sendEvent(ClickEventType type)
 {
-  message.id = teamId;
-  message.value = value;
+  message.type = type;
 
-  esp_err_t result = esp_now_send(SCOREBOARD_MAC, (uint8_t *)&message, sizeof(message));
+  esp_err_t result = esp_now_send(BROADCAST_MAC, (uint8_t *)&message, sizeof(message));
 
   if (result == ESP_OK)
   {
@@ -85,6 +78,16 @@ bool sendScoreUpdate(int teamId, int value)
     Serial.println("\nError sending the data");
     return false;
   }
+}
+
+void handleClick()
+{
+  sendEvent(EVENT_CLICK);
+}
+
+void handleLongPress()
+{
+  sendEvent(EVENT_LONG_PRESS);
 }
 
 void onDataSend(const uint8_t *mac_addr, esp_now_send_status_t status)
