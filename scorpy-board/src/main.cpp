@@ -9,8 +9,25 @@
 #include <OneButton.h>
 #include <Preferences.h>
 #include <jled.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/queue.h>
 
 #include "../../shared/protocol.h"
+
+constexpr int WIRELESS_QUEUE_LENGTH = 10;
+
+struct WirelessEvent
+{
+  uint8_t mac[MAC_LENGTH];
+  ScorpyMessage message;
+};
+
+enum PairMode : uint8_t
+{
+  PAIR_OFF = 0,
+  PAIR_HOME = 1,
+  PAIR_AWAY = 2
+};
 
 void displayScore();
 void onDataRecv(const uint8_t *mac_addr, const uint8_t *incomingData, int len);
@@ -18,10 +35,16 @@ void handleLongPress(int teamId);
 void handleLongPressStop(int teamId);
 void changeScore(int teamId, int amount);
 void resetScores();
+void pairController(int teamId, const uint8_t mac[MAC_LENGTH]);
 PairedController loadPairedController(const char *key);
 void savePairedController(const char *key, const uint8_t mac[6]);
-bool macEquals(const uint8_t a[6], const uint8_t b[6]);
 void clearPairings();
+void clearPairedController(const char *key);
+bool macEquals(const uint8_t a[6], const uint8_t b[6]);
+void loopPairMode();
+void updatePairLed();
+void handleWirelessEvent(const WirelessEvent &event);
+void processWirelessEvents();
 
 constexpr const char *PREF_NAMESPACE = "controllers";
 constexpr const char *PREF_HOME_MAC = "home_mac";
@@ -32,7 +55,7 @@ constexpr int PIN_AWAY = 26;
 constexpr int PIN_PAIR = 27;
 constexpr int PIN_LED = 32;
 
-ScorpyMessage message;
+QueueHandle_t wirelessQueue;
 
 LiquidCrystal lcd(4, 18, 19, 21, 22, 23);
 
@@ -42,8 +65,8 @@ OneButton homeBtn;
 OneButton awayBtn;
 OneButton pairBtn;
 
-PairedController homeController;
-PairedController awayController;
+PairedController homeController = {};
+PairedController awayController = {};
 
 bool isHomeLongPressed = false;
 bool isAwayLongPressed = false;
@@ -51,7 +74,9 @@ bool isAwayLongPressed = false;
 int scoreHome = 0;
 int scoreAway = 0;
 
-int pairMode = 0;
+volatile uint32_t droppedQueueEvents = 0;
+
+PairMode pairMode = PAIR_OFF;
 auto pairHomeBlink = JLed(PIN_LED).Blink(500, 500).Forever();
 auto pairAwayBlink = JLed(PIN_LED).Blink(250, 250).Repeat(2).DelayAfter(750).Forever();
 
@@ -85,6 +110,13 @@ void setup()
 
   WiFi.mode(WIFI_STA);
 
+  wirelessQueue = xQueueCreate(WIRELESS_QUEUE_LENGTH, sizeof(WirelessEvent));
+  if (wirelessQueue == nullptr)
+  {
+    Serial.println("Failed to create wireless queue.");
+    ESP.restart();
+  }
+
   if (esp_now_init() != ESP_OK)
   {
     Serial.println("Error initializing ESP-NOW");
@@ -104,19 +136,9 @@ void loop()
   awayBtn.tick();
   pairBtn.tick();
 
-  if (pairMode == 0)
-  {
-    pairHomeBlink.Reset();
-    pairAwayBlink.Reset();
-  }
-  else if (pairMode == 1)
-  {
-    pairHomeBlink.Update();
-  }
-  else if (pairMode == 2)
-  {
-    pairAwayBlink.Update();
-  }
+  processWirelessEvents();
+
+  updatePairLed();
 }
 
 void displayScore()
@@ -137,50 +159,20 @@ void displayScore()
 
 void onDataRecv(const uint8_t *mac_addr, const uint8_t *incomingData, int len)
 {
-  if (len != sizeof(message))
+  if (len != sizeof(ScorpyMessage))
   {
-    Serial.println("Received invalid message size");
     return;
   }
 
-  memcpy(&message, incomingData, sizeof(message));
+  WirelessEvent event = {};
 
-  if (pairMode == 1 && message.type == EVENT_LONG_PRESS)
-  {
-    pairController(TEAM_HOME, mac_addr);
-    return;
-  }
-  else if (pairMode == 2 && message.type == EVENT_LONG_PRESS)
-  {
-    pairController(TEAM_AWAY, mac_addr);
-    return;
-  }
+  memcpy(event.mac, mac_addr, MAC_LENGTH);
+  memcpy(&event.message, incomingData, sizeof(ScorpyMessage));
 
-  if (homeController.isSet && macEquals(mac_addr, homeController.mac))
+  bool queued = xQueueSend(wirelessQueue, &event, 0);
+  if (queued != pdTRUE)
   {
-    if (message.type == EVENT_CLICK)
-    {
-      changeScore(TEAM_HOME, 1);
-    }
-    else if (message.type == EVENT_LONG_PRESS)
-    {
-      changeScore(TEAM_HOME, -1);
-    }
-  }
-  else if (awayController.isSet && macEquals(mac_addr, awayController.mac))
-  {
-    if (message.type == EVENT_CLICK)
-    {
-      changeScore(TEAM_AWAY, 1);
-    }
-    else if (message.type == EVENT_LONG_PRESS)
-    {
-      changeScore(TEAM_AWAY, -1);
-    }
-  }
-  else
-  {
-    Serial.println("Unknown controller");
+    droppedQueueEvents++;
   }
 }
 
@@ -258,8 +250,8 @@ void pairController(int teamId, const uint8_t mac[MAC_LENGTH])
 
     if (awayController.isSet && macEquals(mac, awayController.mac))
     {
-      awayController.isSet = false;
-      clearPairings(PREF_AWAY_MAC);
+      awayController = {};
+      clearPairedController(PREF_AWAY_MAC);
     }
 
     Serial.println("\nPaired new home controller");
@@ -272,20 +264,19 @@ void pairController(int teamId, const uint8_t mac[MAC_LENGTH])
 
     if (homeController.isSet && macEquals(mac, homeController.mac))
     {
-      homeController.isSet = false;
-      clearPairings(PREF_HOME_MAC);
+      homeController = {};
+      clearPairedController(PREF_HOME_MAC);
     }
 
     Serial.println("\nPaired new away controller");
   }
 
-  pairMode = 0;
+  pairMode = PAIR_OFF;
 }
 
 PairedController loadPairedController(const char *key)
 {
-  PairedController controller;
-  controller.isSet = false;
+  PairedController controller = {};
 
   prefs.begin(PREF_NAMESPACE, true); // true = read-only
 
@@ -317,14 +308,11 @@ void clearPairings()
   prefs.end();
 }
 
-void clearPairings(const char *key)
+void clearPairedController(const char *key)
 {
   prefs.begin(PREF_NAMESPACE, false);
   prefs.remove(key);
   prefs.end();
-
-  homeController.isSet = false;
-  awayController.isSet = false;
 }
 
 bool macEquals(const uint8_t a[6], const uint8_t b[6])
@@ -334,18 +322,109 @@ bool macEquals(const uint8_t a[6], const uint8_t b[6])
 
 void loopPairMode()
 {
-  pairMode = (pairMode + 1) % 3; // loop 0-1-2-0...
+  if (pairMode == PAIR_OFF)
+  {
+    pairMode = PAIR_HOME;
+  }
+  else if (pairMode == PAIR_HOME)
+  {
+    pairMode = PAIR_AWAY;
+  }
+  else
+  {
+    pairMode = PAIR_OFF;
+  }
 
   switch (pairMode)
   {
-  case 0:
+  case PAIR_OFF:
     Serial.println("\nPairing off");
     break;
-  case 1:
+  case PAIR_HOME:
     Serial.println("\nPairing home controller");
     break;
-  case 2:
+  case PAIR_AWAY:
     Serial.println("\nPairing away controller");
     break;
+  }
+}
+
+void updatePairLed()
+{
+  if (pairMode == PAIR_OFF)
+  {
+    pairHomeBlink.Reset();
+    pairAwayBlink.Reset();
+  }
+  else if (pairMode == PAIR_HOME)
+  {
+    pairHomeBlink.Update();
+  }
+  else if (pairMode == PAIR_AWAY)
+  {
+    pairAwayBlink.Update();
+  }
+}
+
+void handleWirelessEvent(const WirelessEvent &event)
+{
+  const uint8_t *mac_addr = event.mac;
+  const ScorpyMessage &message = event.message;
+
+  if (pairMode != PAIR_OFF)
+  {
+    if (message.type == EVENT_LONG_PRESS)
+    {
+      if (pairMode == PAIR_HOME)
+      {
+        pairController(TEAM_HOME, mac_addr);
+      }
+      else if (pairMode == PAIR_AWAY)
+      {
+        pairController(TEAM_AWAY, mac_addr);
+      }
+    }
+
+    return;
+  }
+
+  if (homeController.isSet && macEquals(mac_addr, homeController.mac))
+  {
+    if (message.type == EVENT_CLICK)
+    {
+      changeScore(TEAM_HOME, 1);
+    }
+    else if (message.type == EVENT_LONG_PRESS)
+    {
+      changeScore(TEAM_HOME, -1);
+    }
+
+    return;
+  }
+
+  if (awayController.isSet && macEquals(mac_addr, awayController.mac))
+  {
+    if (message.type == EVENT_CLICK)
+    {
+      changeScore(TEAM_AWAY, 1);
+    }
+    else if (message.type == EVENT_LONG_PRESS)
+    {
+      changeScore(TEAM_AWAY, -1);
+    }
+
+    return;
+  }
+
+  Serial.println("Unknown controller");
+}
+
+void processWirelessEvents()
+{
+  WirelessEvent event;
+
+  while (xQueueReceive(wirelessQueue, &event, 0) == pdTRUE)
+  {
+    handleWirelessEvent(event);
   }
 }
