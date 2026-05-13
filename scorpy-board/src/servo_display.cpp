@@ -50,4 +50,6 @@ void updateServos(int scoreHome, int scoreAway)
 
   servoAwayOnes.write(DIGIT_ANGLES[awayOnes]);
   servoAwayTens.write(DIGIT_ANGLES[awayTens]);
+
+  Serial.printf("\nHome: %d \t Away: %d \n", homeVisible, awayVisible);
 }
