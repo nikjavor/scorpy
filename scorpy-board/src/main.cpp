@@ -14,6 +14,9 @@
 
 #include "../../shared/protocol.h"
 
+#include "board_pins.h"
+#include "servo_display.h"
+
 constexpr int WIRELESS_QUEUE_LENGTH = 10;
 
 struct WirelessEvent
@@ -50,14 +53,7 @@ constexpr const char *PREF_NAMESPACE = "controllers";
 constexpr const char *PREF_HOME_MAC = "home_mac";
 constexpr const char *PREF_AWAY_MAC = "away_mac";
 
-constexpr int PIN_HOME = 25;
-constexpr int PIN_AWAY = 26;
-constexpr int PIN_PAIR = 27;
-constexpr int PIN_LED = 32;
-
 QueueHandle_t wirelessQueue;
-
-LiquidCrystal lcd(4, 18, 19, 21, 22, 23);
 
 Preferences prefs;
 
@@ -88,6 +84,8 @@ void setup()
   homeBtn.setup(PIN_HOME);
   awayBtn.setup(PIN_AWAY);
   pairBtn.setup(PIN_PAIR);
+
+  beginServos();
 
   homeBtn.attachClick([]()
                       { changeScore(TEAM_HOME, 1); });
@@ -125,7 +123,6 @@ void setup()
 
   esp_now_register_recv_cb(esp_now_recv_cb_t(onDataRecv));
 
-  lcd.begin(16, 2);
   displayScore();
 }
 
@@ -139,22 +136,12 @@ void loop()
   processWirelessEvents();
 
   updatePairLed();
+  updateServos(scoreHome, scoreAway);
 }
 
 void displayScore()
 {
   Serial.printf("\nHome: %d \t Away: %d \n", scoreHome, scoreAway);
-
-  lcd.clear();
-
-  lcd.setCursor(2, 0);
-  lcd.print("HOME   AWAY");
-
-  lcd.setCursor(3, 1);
-  lcd.print(scoreHome);
-
-  lcd.setCursor(10, 1);
-  lcd.print(scoreAway);
 }
 
 void onDataRecv(const uint8_t *mac_addr, const uint8_t *incomingData, int len)
