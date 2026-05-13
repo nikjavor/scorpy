@@ -1,3 +1,5 @@
+// pairing.cpp
+
 #include <Preferences.h>
 #include "pairing.h"
 
@@ -12,8 +14,8 @@ namespace
 
 void PairingManager::begin()
 {
-  loadController(PREF_HOME_MAC);
-  loadController(PREF_AWAY_MAC);
+  homeController = loadController(PREF_HOME_MAC);
+  awayController = loadController(PREF_AWAY_MAC);
 }
 
 PairMode PairingManager::mode() const

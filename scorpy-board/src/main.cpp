@@ -42,7 +42,8 @@ bool isAwayLongPressed = false;
 volatile uint32_t droppedQueueEvents = 0;
 
 JLed pairHomeBlink = JLed(PIN_LED).Blink(500, 500).Forever();
-JLed pairAwayBlink = JLed(PIN_LED).Blink(250, 250).Repeat(2).DelayAfter(750).Forever();
+JLed pairAwayBlink = JLed(PIN_LED).Blink(200, 200).Forever();
+JLed pairLedOn = JLed(PIN_LED).On().Forever();
 
 void onDataRecv(const uint8_t *mac_addr, const uint8_t *incomingData, int len);
 void handleLongPress(int teamId);
@@ -167,18 +168,24 @@ void updatePairLed()
 {
   if (pairing.mode() == PAIR_OFF)
   {
+    pairLedOn.Update();
+
     pairHomeBlink.Reset();
     pairAwayBlink.Reset();
   }
   else if (pairing.mode() == PAIR_HOME)
   {
-    pairAwayBlink.Reset();
     pairHomeBlink.Update();
+
+    pairAwayBlink.Reset();
+    pairLedOn.Reset();
   }
   else if (pairing.mode() == PAIR_AWAY)
   {
-    pairHomeBlink.Reset();
     pairAwayBlink.Update();
+
+    pairHomeBlink.Reset();
+    pairLedOn.Reset();
   }
 }
 
