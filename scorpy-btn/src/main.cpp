@@ -4,37 +4,97 @@
 #include <Arduino.h>
 
 #include <esp_now.h>
+#include <esp_sleep.h>
 #include <WiFi.h>
-#include <OneButton.h>
 
 #include "../../shared/protocol.h"
 
-void onDataSend(const uint8_t *mac_addr, esp_now_send_status_t status);
-void handleClick();
-void handleLongPress();
-bool sendEvent(ClickEventType type);
+constexpr uint8_t BROADCAST_MAC[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF}; // Broadcast MAC
 
-const uint8_t BROADCAST_MAC[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF}; // Broadcast MAC
+constexpr int BTN_PIN = 3; // D1
 
-const int BTN_PIN = 10; // D10
-
-const int TEAM_ID = TEAM_HOME;
-
-OneButton btn;
+constexpr uint32_t LONG_PRESS_MS = 800;
+constexpr uint32_t DEBOUNCE_MS = 30;
 
 ScorpyMessage message;
 esp_now_peer_info_t peerInfo;
+
+void initEspNow();
+void goToSleep();
+bool sendEvent(ClickEventType type);
+ClickEventType detectPressType();
 
 void setup()
 {
   // put your setup code here, to run once:
   Serial.begin(115200);
+  delay(100);
 
-  btn.setup(BTN_PIN);
+  pinMode(BTN_PIN, INPUT_PULLUP);
 
-  btn.attachClick(handleClick);
-  btn.attachLongPressStart(handleLongPress);
+  delay(DEBOUNCE_MS);
 
+  if (digitalRead(BTN_PIN) == HIGH)
+  {
+    goToSleep();
+  }
+
+  ClickEventType eventType = detectPressType();
+
+  initEspNow();
+
+  sendEvent(eventType);
+  delay(100);
+
+  // Wait until button is released so it does not instantly wake again.
+  while (digitalRead(BTN_PIN) == LOW)
+  {
+    delay(10);
+  }
+
+  WiFi.disconnect(true);
+  WiFi.mode(WIFI_OFF);
+
+  goToSleep();
+}
+
+void loop()
+{
+}
+
+void goToSleep()
+{
+  pinMode(BTN_PIN, INPUT_PULLUP);
+
+  uint64_t wakeMask = 1ULL << BTN_PIN;
+
+  esp_deep_sleep_enable_gpio_wakeup(
+      wakeMask,
+      ESP_GPIO_WAKEUP_GPIO_LOW);
+
+  Serial.flush();
+  esp_deep_sleep_start();
+}
+
+ClickEventType detectPressType()
+{
+  uint32_t pressStart = millis();
+
+  while (digitalRead(BTN_PIN) == LOW)
+  {
+    if (millis() - pressStart >= LONG_PRESS_MS)
+    {
+      return EVENT_LONG_PRESS;
+    }
+
+    delay(5);
+  }
+
+  return EVENT_CLICK;
+}
+
+void initEspNow()
+{
   WiFi.mode(WIFI_STA);
 
   if (esp_now_init() != ESP_OK)
@@ -43,8 +103,7 @@ void setup()
     ESP.restart();
   }
 
-  esp_now_register_send_cb(esp_now_send_cb_t(onDataSend));
-
+  memset(&peerInfo, 0, sizeof(peerInfo));
   memcpy(peerInfo.peer_addr, BROADCAST_MAC, sizeof(BROADCAST_MAC));
   peerInfo.channel = 0;
   peerInfo.encrypt = false;
@@ -54,12 +113,6 @@ void setup()
     Serial.println("Failed to add peer");
     ESP.restart();
   }
-}
-
-void loop()
-{
-  // put your main code here, to run repeatedly:
-  btn.tick();
 }
 
 bool sendEvent(ClickEventType type)
@@ -78,20 +131,4 @@ bool sendEvent(ClickEventType type)
     Serial.println("\nError sending the data");
     return false;
   }
-}
-
-void handleClick()
-{
-  sendEvent(EVENT_CLICK);
-}
-
-void handleLongPress()
-{
-  sendEvent(EVENT_LONG_PRESS);
-}
-
-void onDataSend(const uint8_t *mac_addr, esp_now_send_status_t status)
-{
-  Serial.print("\r\nLast Packet Send Status:\t");
-  Serial.println(status == ESP_NOW_SEND_SUCCESS ? "Delivery Success" : "Delivery Fail");
 }
