@@ -45,7 +45,7 @@ JLed pairHomeBlink = JLed(PIN_LED).Blink(500, 500).Forever();
 JLed pairAwayBlink = JLed(PIN_LED).Blink(200, 200).Forever();
 JLed pairLedOn = JLed(PIN_LED).On().Forever();
 
-void onDataRecv(const uint8_t *mac_addr, const uint8_t *incomingData, int len);
+void onDataRecv(const esp_now_recv_info_t *info, const uint8_t *incomingData, int len);
 void handleLongPress(int teamId);
 void handleLongPressStop(int teamId);
 void updatePairLed();
@@ -97,7 +97,7 @@ void setup()
     ESP.restart();
   }
 
-  esp_now_register_recv_cb(esp_now_recv_cb_t(onDataRecv));
+  esp_now_register_recv_cb(onDataRecv);
 }
 
 void loop()
@@ -113,7 +113,7 @@ void loop()
   updateServos(scores.home(), scores.away());
 }
 
-void onDataRecv(const uint8_t *mac_addr, const uint8_t *incomingData, int len)
+void onDataRecv(const esp_now_recv_info_t *info, const uint8_t *incomingData, int len)
 {
   if (len != sizeof(ScorpyMessage))
   {
@@ -122,13 +122,13 @@ void onDataRecv(const uint8_t *mac_addr, const uint8_t *incomingData, int len)
 
   WirelessEvent event = {};
 
-  memcpy(event.mac, mac_addr, MAC_LENGTH);
+  memcpy(event.mac, info->src_addr, MAC_LENGTH);
   memcpy(&event.message, incomingData, sizeof(ScorpyMessage));
 
   bool queued = xQueueSend(wirelessQueue, &event, 0);
   if (queued != pdTRUE)
   {
-    droppedQueueEvents++;
+    droppedQueueEvents += 1;
   }
 }
 
@@ -193,6 +193,15 @@ void handleWirelessEvent(const WirelessEvent &event)
 {
   const uint8_t *mac_addr = event.mac;
   const ScorpyMessage &message = event.message;
+
+  Serial.printf(
+      "MAC: %02X:%02X:%02X:%02X:%02X:%02X\n",
+      mac_addr[0],
+      mac_addr[1],
+      mac_addr[2],
+      mac_addr[3],
+      mac_addr[4],
+      mac_addr[5]);
 
   if (pairing.isPairing())
   {
