@@ -11,7 +11,7 @@
 
 constexpr uint8_t BROADCAST_MAC[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF}; // Broadcast MAC
 
-constexpr int BTN_PIN = 3; // D1
+constexpr int BTN_PIN = D1; // D1
 
 constexpr uint32_t LONG_PRESS_MS = 800;
 constexpr uint32_t DEBOUNCE_MS = 30;
@@ -26,9 +26,7 @@ ClickEventType detectPressType();
 
 void setup()
 {
-  // put your setup code here, to run once:
-  Serial.begin(115200);
-  delay(100);
+  // put your setup code here, to run on wake
 
   pinMode(BTN_PIN, INPUT_PULLUP);
 
