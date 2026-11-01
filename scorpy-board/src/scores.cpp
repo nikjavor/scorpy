@@ -1,8 +1,11 @@
 #include "scores.h"
 #include "protocol.h"
 
-void ScoreState::change(int teamId, int amount)
+bool ScoreState::change(int teamId, int amount)
 {
+  const int previousHome = scoreHome;
+  const int previousAway = scoreAway;
+
   if (teamId == TEAM_HOME)
   {
     scoreHome += amount;
@@ -21,12 +24,16 @@ void ScoreState::change(int teamId, int amount)
       scoreAway = 0;
     }
   }
+
+  return scoreHome != previousHome || scoreAway != previousAway;
 }
 
-void ScoreState::reset()
+bool ScoreState::reset()
 {
+  const bool changed = scoreHome != 0 || scoreAway != 0;
   scoreHome = 0;
   scoreAway = 0;
+  return changed;
 }
 
 int ScoreState::home() const

@@ -5,8 +5,9 @@
 class ScoreState
 {
 public:
-  void change(int teamId, int amount);
-  void reset();
+  // Return true only when a stored score changes.
+  bool change(int teamId, int amount);
+  bool reset();
 
   int home() const;
   int away() const;

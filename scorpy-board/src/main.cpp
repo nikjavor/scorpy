@@ -12,6 +12,7 @@
 #include "protocol.h"
 
 #include "board_pins.h"
+#include "beeper.h"
 #include "servo_display.h"
 #include "pairing.h"
 #include "scores.h"
@@ -40,6 +41,8 @@ bool isAwayLongPressed = false;
 volatile uint32_t droppedQueueEvents = 0;
 
 void onDataRecv(const uint8_t *mac, const uint8_t *incomingData, int len);
+void changeScore(int teamId, int amount);
+void resetScores();
 void handleLongPress(int teamId);
 void handleLongPressStop(int teamId);
 void updatePairLed();
@@ -55,20 +58,21 @@ void setup()
   pairBtn.setup(PIN_PAIR);
   pinMode(PIN_LED, OUTPUT);
   digitalWrite(PIN_LED, HIGH);
+  beginBeeper();
 
   pairing.begin();
 
   beginServos();
 
   homeBtn.attachClick([]()
-                      { scores.change(TEAM_HOME, 1); });
+                      { changeScore(TEAM_HOME, 1); });
   homeBtn.attachLongPressStart([]()
                                { handleLongPress(TEAM_HOME); });
   homeBtn.attachLongPressStop([]()
                               { handleLongPressStop(TEAM_HOME); });
 
   awayBtn.attachClick([]()
-                      { scores.change(TEAM_AWAY, 1); });
+                      { changeScore(TEAM_AWAY, 1); });
   awayBtn.attachLongPressStart([]()
                                { handleLongPress(TEAM_AWAY); });
   awayBtn.attachLongPressStop([]()
@@ -107,6 +111,7 @@ void loop()
 
   processWirelessEvents();
 
+  updateBeeper();
   updatePairLed();
   updateServos(scores.home(), scores.away());
 }
@@ -130,6 +135,22 @@ void onDataRecv(const uint8_t *mac, const uint8_t *incomingData, int len)
   }
 }
 
+void changeScore(int teamId, int amount)
+{
+  if (scores.change(teamId, amount))
+  {
+    beep();
+  }
+}
+
+void resetScores()
+{
+  if (scores.reset())
+  {
+    beep();
+  }
+}
+
 void handleLongPress(int teamId)
 {
   if (teamId == TEAM_HOME)
@@ -143,11 +164,11 @@ void handleLongPress(int teamId)
 
   if (isHomeLongPressed && isAwayLongPressed)
   {
-    scores.reset();
+    resetScores();
     return;
   }
 
-  scores.change(teamId, -1);
+  changeScore(teamId, -1);
 }
 
 void handleLongPressStop(int teamId)
@@ -216,11 +237,11 @@ void handleWirelessEvent(const WirelessEvent &event)
   {
     if (message.type == EVENT_CLICK)
     {
-      scores.change(TEAM_HOME, 1);
+      changeScore(TEAM_HOME, 1);
     }
     else if (message.type == EVENT_LONG_PRESS)
     {
-      scores.change(TEAM_HOME, -1);
+      changeScore(TEAM_HOME, -1);
     }
 
     return;
@@ -230,11 +251,11 @@ void handleWirelessEvent(const WirelessEvent &event)
   {
     if (message.type == EVENT_CLICK)
     {
-      scores.change(TEAM_AWAY, 1);
+      changeScore(TEAM_AWAY, 1);
     }
     else if (message.type == EVENT_LONG_PRESS)
     {
-      scores.change(TEAM_AWAY, -1);
+      changeScore(TEAM_AWAY, -1);
     }
 
     return;
