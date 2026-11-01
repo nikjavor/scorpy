@@ -1,5 +1,5 @@
 #include "scores.h"
-#include "../../shared/protocol.h"
+#include "protocol.h"
 
 void ScoreState::change(int teamId, int amount)
 {

@@ -5,13 +5,11 @@
 
 #include <WiFi.h>
 #include <esp_now.h>
-#include <LiquidCrystal.h>
 #include <OneButton.h>
-#include <jled.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
 
-#include "../../shared/protocol.h"
+#include "protocol.h"
 
 #include "board_pins.h"
 #include "servo_display.h"
@@ -41,11 +39,7 @@ bool isAwayLongPressed = false;
 
 volatile uint32_t droppedQueueEvents = 0;
 
-JLed pairHomeBlink = JLed(PIN_LED).Blink(500, 500).Forever();
-JLed pairAwayBlink = JLed(PIN_LED).Blink(200, 200).Forever();
-JLed pairLedOn = JLed(PIN_LED).On().Forever();
-
-void onDataRecv(const esp_now_recv_info_t *info, const uint8_t *incomingData, int len);
+void onDataRecv(const uint8_t *mac, const uint8_t *incomingData, int len);
 void handleLongPress(int teamId);
 void handleLongPressStop(int teamId);
 void updatePairLed();
@@ -54,12 +48,13 @@ void processWirelessEvents();
 
 void setup()
 {
-  // put your setup code here, to run once:
   Serial.begin(115200);
 
   homeBtn.setup(PIN_HOME);
   awayBtn.setup(PIN_AWAY);
   pairBtn.setup(PIN_PAIR);
+  pinMode(PIN_LED, OUTPUT);
+  digitalWrite(PIN_LED, HIGH);
 
   pairing.begin();
 
@@ -97,12 +92,15 @@ void setup()
     ESP.restart();
   }
 
-  esp_now_register_recv_cb(onDataRecv);
+  if (esp_now_register_recv_cb(onDataRecv) != ESP_OK)
+  {
+    Serial.println("Error registering ESP-NOW receive callback");
+    ESP.restart();
+  }
 }
 
 void loop()
 {
-  // put your main code here, to run repeatedly:
   homeBtn.tick();
   awayBtn.tick();
   pairBtn.tick();
@@ -113,7 +111,7 @@ void loop()
   updateServos(scores.home(), scores.away());
 }
 
-void onDataRecv(const esp_now_recv_info_t *info, const uint8_t *incomingData, int len)
+void onDataRecv(const uint8_t *mac, const uint8_t *incomingData, int len)
 {
   if (len != sizeof(ScorpyMessage))
   {
@@ -122,7 +120,7 @@ void onDataRecv(const esp_now_recv_info_t *info, const uint8_t *incomingData, in
 
   WirelessEvent event = {};
 
-  memcpy(event.mac, info->src_addr, MAC_LENGTH);
+  memcpy(event.mac, mac, MAC_LENGTH);
   memcpy(&event.message, incomingData, sizeof(ScorpyMessage));
 
   bool queued = xQueueSend(wirelessQueue, &event, 0);
@@ -166,27 +164,28 @@ void handleLongPressStop(int teamId)
 
 void updatePairLed()
 {
-  if (pairing.mode() == PAIR_OFF)
-  {
-    pairLedOn.Update();
+  static PairMode previousMode = PAIR_OFF;
+  static uint32_t modeStartedAt = 0;
 
-    pairHomeBlink.Reset();
-    pairAwayBlink.Reset();
-  }
-  else if (pairing.mode() == PAIR_HOME)
-  {
-    pairHomeBlink.Update();
+  const PairMode mode = pairing.mode();
+  const uint32_t now = millis();
 
-    pairAwayBlink.Reset();
-    pairLedOn.Reset();
-  }
-  else if (pairing.mode() == PAIR_AWAY)
+  if (mode != previousMode)
   {
-    pairAwayBlink.Update();
-
-    pairHomeBlink.Reset();
-    pairLedOn.Reset();
+    previousMode = mode;
+    modeStartedAt = now;
   }
+
+  if (mode == PAIR_OFF)
+  {
+    digitalWrite(PIN_LED, HIGH);
+    return;
+  }
+
+  // Digital output keeps the status LED off the servos' PWM channels/timers.
+  const uint32_t interval = mode == PAIR_HOME ? 500 : 200;
+  const bool ledOn = ((now - modeStartedAt) / interval) % 2 == 0;
+  digitalWrite(PIN_LED, ledOn ? HIGH : LOW);
 }
 
 void handleWirelessEvent(const WirelessEvent &event)

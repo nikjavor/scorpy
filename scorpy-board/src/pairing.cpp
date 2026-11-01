@@ -142,5 +142,5 @@ void PairingManager::clearController(const char *key)
 
 bool PairingManager::macEquals(const uint8_t a[MAC_LENGTH], const uint8_t b[MAC_LENGTH]) const
 {
-  return memcmp(a, b, 6) == 0;
+  return memcmp(a, b, MAC_LENGTH) == 0;
 }
